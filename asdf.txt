@@ -1,0 +1,14 @@
+xsize		640
+ysize 		480
+tilesize	100
+grid_fac	8
+grid_thresh	0.7
+grid_size	1.8
+qcx_thresh	15
+iter		3000
+ref_passes	5
+corner		-0.74364443065 0.1318257986
+size		0.00000066208	4.9656e-07
+exp 0.17
+linear 1.67
+offset 0.08
