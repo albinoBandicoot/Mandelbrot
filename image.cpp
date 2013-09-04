@@ -1,7 +1,10 @@
+/* This file handles the writing of the bitmap (BMP) image. It's a little yucky. */
+
 #include <color.h>
 #include <image.h>
 using namespace std;
 
+/* Populate the various fields of the header structs */
 void generate_headers (bmp_header *bmph, dib_header *dibh, int xsize, int ysize){
 	int data_size = 3 * xsize * ysize;
 	if ((xsize*3) % 4 != 0){
@@ -25,6 +28,9 @@ void generate_headers (bmp_header *bmph, dib_header *dibh, int xsize, int ysize)
 	dibh->imp_colors = 0u;
 }
 
+/* There was an endian-ness problem; this might not be portable if the endianness of the 
+ * machine lines up with the BMP-specified endianness. insert_ushort and insert_uint fix it.
+*/
 void insert_ushort (unsigned char *h, int place, unsigned short val){
 	h[place] = val%256;
 	h[place+1] = val/256;
@@ -40,6 +46,7 @@ void insert_uint (unsigned char *h, int place, unsigned int val){
 	h[place+3] = val;
 }
 
+/* Write out the headers into the given file */
 void write_headers (bmp_header b, dib_header d, FILE *img){
 	unsigned char h[54];
 	h[0] = 66;
@@ -63,6 +70,7 @@ void write_headers (bmp_header b, dib_header d, FILE *img){
 	fwrite(h, 1, 54, img);
 }
 
+/* Write the actual image data, given as a one-dimensional array of colors (see color.h) */
 void write_img (color *img, int xsize, int ysize, FILE *out){
 	bmp_header b;
 	dib_header d;
