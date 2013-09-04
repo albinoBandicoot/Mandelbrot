@@ -1,0 +1,174 @@
+Intro
+^^^^^
+
+This project attempts to be a very fast Mandelbrot set renderer without 
+making sacrifices in image quality. This mostly involves multithreading, an
+optimized inner loop, and a unique means of progressively refining the edge of
+the set (which cuts down times significantly on deep, high-iteration renders). 
+It is also mostly self-contained, relying only on the standard C libraries and
+on pthread. The image writing (.bmp only) is done internally. 
+
+This being said, the interface is rather primitive. It expects three command
+line arguments: (1) The number of threads to use, (2) the number of columns in
+the terminal window (yes I know it is rather ridiculous to make the user supply
+this), and (3) a file to use to override some or all of the default options. 
+Usually at the very least the region to render will be overridden. 
+
+The Mandelbrot Set
+^^^ ^^^^^^^^^^ ^^^
+
+The Mandelbrot set is the set of all complex numbers z_0 such that the sequence
+defined by
+
+z_n = z_(n-1)^2 + z_0
+
+does not diverge as n -> infinity. This remarkably simple iteration produces a 
+beautifully and incomprehensibly complex and varied array of patterns. It turns
+out that the set is bounded by a circle of radius 2 centered at the origin, and
+it is connected (though it certainly doesn't appear that way!). 
+
+Its existence in the complex plane lends itself well to computer-generated 
+visual representations. The real and imaginary axes are mapped to the x and y
+coordinates of an image, and for each pixel's corresponding coordinate in the
+complex plane, it is determined whether the point is in the set or not. For
+points that are not in the set, eventually ||z_n|| becomes greater than 2 for
+some n, and at that point, since we know the set is bounded as previously 
+described, we are sure that the point is not in the set. However, this 
+computation will proceed indefinitely for points that are in the set, so a cap
+on the number of iterations is set, and if this cap is reached, the point is 
+assumed to be in the set. This is, of course, an approximation, but a suitably
+high cap will not affect the output noticeably. 
+
+Coloring
+^^^^^^^^
+
+The process described above will only produce a black and white image. Much of
+the beauty of the set is exposed if we assign colors to the divergent pixels 
+based on the number of iterations it took to pass ||z_n|| = 2. Now, this 
+procedure will produce unsightly banding effects in the image. It turns out that
+if you instead use a much larger bound than 2, say, 10^40, you can determine a
+'smooth' (non-integral) iteration number, by which smooth gradients replace the
+banding. 
+
+To produce more elegant colorings, a function is applied to the smooth iteration
+count before it is used to index into the color list. This has the form
+
+index = ((b*(V^a) + c) * RPOINTS) % RPOINTS
+
+Where V is the smooth iteration count, RPOINTS is the number of colors in the
+color ramp, and a, b, and c are constants that can be supplied in the options 
+file as 'exp', 'linear', and 'offset', respectively. 
+
+The color ramp is constructed by interpolating between a small number of control
+points to produce a list of RPOINTS colors, which is indexed directly by the
+'index' value computed above. 
+
+Edge Refinement
+^^^^ ^^^^^^^^^^
+
+It is often desirable to use a high iteration count to obtain crisp and detailed
+edges, however, doing so comes at a high computational cost, since then each 
+pixel that is in the set must be iterated to a much higher bound. For instance,
+the general outline might be decent at 4000 iterations, but it might take 100000
+for the edge to be crisp on some deep images. 
+
+Instead of blindly iterating all the pixels to 100000 iterations (or divergence)
+I instead render the set at 4000 first. Then, looking at only the pixels on the
+edge (pixels that have currently been marked as in the set and border pixels
+that are not), I test again with twice as many iterations. I also maintain a
+list of which pixels have been iterated how far. I repeat at the new level, in 
+this case, 8000 iterations, until only a few pixels are removed (since one pass
+can expose new pixels that can be removed with 8000 iterations). Then I bump up
+the iterations again, until the target is reached. This process saves enormous
+amounts of time in high-iteration images.
+
+Supersampling
+^^^^^^^^^^^^^
+
+By its nature as a fractal, there will be detail at all scales in the Mandelbrot
+set. Hence, in some areas, there will be a substantial amount of detail at the
+sub-pixel scale, but only one sample to represent it. In such regions, this 
+manifests itself as noise. Hence, to improve the aesthetics of the image, it is
+worthwhile to take multiple samples inside these pixels and blend them together.
+
+This would be quite wasteful if it were done on every pixel, since most pixels
+do not in fact need to be supersampled at all, while some can benefit from
+having as many as 50 samples taken inside them. Hence, supersampling is applied
+selectively based to the contrast with neighboring pixels. 
+
+Two types of supersampling are done: Quincunx and grid. The Quincunx pattern 
+uses a sample at the center of the pixel, and a sample at each corner, given
+qcx_wt times the weight of the center. Since neighboring pixels share corner
+locations, the samples can be shared across pixels, which means each sample does
+more good. In an infinite grid, it only takes 2 samples per pixel, due to 
+sharing, though each pixel's result is an mix of 5 different samples. 
+
+The Quincunx sampling pattern works well for pixels that just need a little bit
+of supersampling. For the tougher pixels, a uniform grid is laid out, usually
+extending slightly beyond the bounds of the pixel, and samples are taken at each
+grid point and summed. The number of samples and the size of the grid can be 
+controlled in the options file.
+
+Two thresholds parameters may be specified, which determine when each level of
+supersampling (none, quincunx, grid) kicks in. You can think of these as 
+representing contrast levels, so the higher the number, the less pixels get
+supersampled. For instance, if the grid threshold is 0.3 and the quincunx 
+threshold is 0.1, then pixels with contrast values in [0..0.1] get no
+supersampling, values in [0.1..0.3] get quincunx, and values >0.3 get the grid.
+
+Options
+^^^^^^^
+
+The format of this options file is quite straightforward: it consists of a list
+of parameter names and values, separated by whitespace. There is no requirement
+that parameters be put on separate lines, though it looks prettier. These are 
+the parameters:
+
+| Name		| Type	| Default 	| Description
+
+output_file	string	mand.bmp	File to which the output image will be written.
+
+xsize		int		700			The width of the rendered image, in pixels.
+
+ysize		int		700			The height of the rendered image, in pixels.
+
+tilesize	int		64			The pixel size of an individual tile.
+
+corner		complex	(-2-1.5i)	The coordinates of the lower-left corner.
+
+size		complex	(3 + 3i)	Size of the rectangle that defines the image.
+
+iter		int		500			Baseline number of iterations to perform.
+
+exp			float	0.6			Exponent on the coloring function.
+
+linear		float	0.11		Linear coefficient of the coloring function.
+
+offset		float	0			Constant offset on the coloring function.
+
+ref_passes	int		4			Number of edge refinement passes to perform. The
+								  final pass will use iter * 2^ref_passes 
+								  iterations.
+
+qcx_thresh	float	0			Threshold at which to start doing Quincunx
+								  pattern supersampling on a pixel.
+
+grid_thresh	float	0.2			Threshold at which to do the full uniform-grid
+								  supersampling on a pixel.
+
+grid_size	float	1.3			Size of the sampling area for the grid pattern,
+								  in pixels.
+
+grid_fac	int		4			Number of points in the grid (along each axis).
+
+grid_wt_tot	float	3			Unused.
+
+qcx_wt		float	0.5			Blend factor between the Quincunx samples and
+								  the pixel center sample.
+
+Complex numbers are specified as two floating point numbers separated by
+whitespace. Example of file format:
+
+corner	-0.52 0.4
+size	0.1 0.1
+linear	0.13
